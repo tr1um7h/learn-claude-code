@@ -70,16 +70,18 @@ messages.append({"role": "user", "content": results})
 ```python
 def agent_loop(query):
     messages = [{"role": "user", "content": query}]
+
     while True:
+        # 发给大模型，读取响应
         response = client.messages.create(
             model=MODEL, system=SYSTEM, messages=messages,
             tools=TOOLS, max_tokens=8000,
         )
         messages.append({"role": "assistant", "content": response.content})
-
+        # 如果不是 tool_use, 结束直接返回响应
         if response.stop_reason != "tool_use":
             return
-
+        # 如果 tool_use, 将tool_result作为user_message, 再次发送大模型
         results = []
         for block in response.content:
             if block.type == "tool_use":
