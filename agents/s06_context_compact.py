@@ -54,7 +54,7 @@ MODEL = os.environ["MODEL_ID"]
 
 SYSTEM = f"You are a coding agent at {WORKDIR}. Use tools to solve tasks."
 
-THRESHOLD = 50000
+THRESHOLD = 25000
 TRANSCRIPT_DIR = WORKDIR / ".transcripts"
 KEEP_RECENT = 3
 PRESERVE_RESULT_TOOLS = {"read_file"}
@@ -76,6 +76,7 @@ def micro_compact(messages: list) -> list:
                     tool_results.append((msg_idx, part_idx, part))
     if len(tool_results) <= KEEP_RECENT:
         return messages
+    est_tokens = estimate_tokens(messages)
     # Find tool_name for each result by matching tool_use_id in prior assistant messages
     tool_name_map = {}
     for msg in messages:
@@ -96,6 +97,8 @@ def micro_compact(messages: list) -> list:
         if tool_name in PRESERVE_RESULT_TOOLS:
             continue
         result["content"] = f"[Previous: used {tool_name}]"
+    cur_tokens = estimate_tokens(messages)
+    print(f"micro_compact> {est_tokens} -> {cur_tokens}")
     return messages
 
 
@@ -108,6 +111,7 @@ def auto_compact(messages: list) -> list:
         for msg in messages:
             f.write(json.dumps(msg, default=str) + "\n")
     print(f"[transcript saved: {transcript_path}]")
+    est_tokens = estimate_tokens(messages)
     # Ask LLM to summarize
     conversation_text = json.dumps(messages, default=str)[-80000:]
     response = client.messages.create(
@@ -122,6 +126,8 @@ def auto_compact(messages: list) -> list:
     if not summary:
         summary = "No summary generated."
     # Replace all messages with compressed summary
+    cur_tokens = estimate_tokens([{summary}])
+    print(f"auto_compact> {est_tokens} -> {cur_tokens}")
     return [
         {"role": "user", "content": f"[Conversation compressed. Transcript: {transcript_path}]\n\n{summary}"},
     ]
@@ -203,7 +209,8 @@ def agent_loop(messages: list):
         # Layer 1: micro_compact before each LLM call
         micro_compact(messages)
         # Layer 2: auto_compact if token estimate exceeds threshold
-        if estimate_tokens(messages) > THRESHOLD:
+        threshold = estimate_tokens(messages)
+        if threshold > THRESHOLD:
             print("[auto_compact triggered]")
             messages[:] = auto_compact(messages)
         response = client.messages.create(
@@ -226,7 +233,8 @@ def agent_loop(messages: list):
                         output = handler(**block.input) if handler else f"Unknown tool: {block.name}"
                     except Exception as e:
                         output = f"Error: {e}"
-                print(f"> {block.name}:")
+                input_obj = getattr(block, "input", "")
+                print(f"> {block.name}:{input_obj}")
                 print(str(output)[:200])
                 results.append({"type": "tool_result", "tool_use_id": block.id, "content": str(output)})
         messages.append({"role": "user", "content": results})
