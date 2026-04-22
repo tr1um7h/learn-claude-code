@@ -131,3 +131,7 @@ python agents/s07_task_system.py
 2. `List all tasks and show the dependency graph`
 3. `Complete task 1 and then list tasks to see task 2 unblocked`
 4. `Create a task board for refactoring: parse -> transform -> emit -> test, where transform and emit can run in parallel after parse`
+
+## 个人理解
+1. 大模型的能力是知识、思考，规划下一步干什么。但怎么做（计算），怎么拿（数据），这些细节并不能全部指望大模型
+2. 大模型有幻觉，有上下文限制，容易忘记目标，等等缺点，参考andrej kapathy 的 CLAUDE.MD, 设定好规范
