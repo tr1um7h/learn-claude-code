@@ -130,6 +130,7 @@ def run_subagent(prompt: str) -> str:
             if block.type == "tool_use":
                 handler = TOOL_HANDLERS.get(block.name)
                 output = handler(**block.input) if handler else f"Unknown tool: {block.name}"
+                print(f"sub> {block.name}: {block.input}")
                 results.append({"type": "tool_result", "tool_use_id": block.id, "content": str(output)[:50000]})
         sub_messages.append({"role": "user", "content": results})
     # Only the final text returns to the parent -- child context is discarded

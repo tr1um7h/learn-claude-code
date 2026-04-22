@@ -66,6 +66,7 @@ def run_subagent(prompt: str) -> str:
                     "tool_use_id": block.id,
                     "content": str(output)[:50000]})
         sub_messages.append({"role": "user", "content": results})
+    # subagent: 历史消息直接丢弃
     return "".join(
         b.text for b in response.content if hasattr(b, "text")
     ) or "(no summary)"
@@ -94,3 +95,5 @@ python agents/s04_subagent.py
 1. `Use a subtask to find what testing framework this project uses`
 2. `Delegate: read all .py files and summarize what each one does`
 3. `Use a task to create a new module, then verify it from here`
+4. `Use a subtask to find what testing framework, python package manager this project uses`
+5. `Use a subtask to test mypackage module, DON'T edit any file`
