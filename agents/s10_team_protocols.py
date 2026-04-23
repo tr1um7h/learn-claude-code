@@ -69,6 +69,7 @@ TEAM_DIR = WORKDIR / ".team"
 INBOX_DIR = TEAM_DIR / "inbox"
 
 SYSTEM = f"You are a team lead at {WORKDIR}. Manage teammates with shutdown and plan approval protocols."
+# SYSTEM_TEAM = f"You are NEVER allowed to idle, shutdown, end_turn without lead's approve."
 
 VALID_MSG_TYPES = {
     "message",
@@ -176,6 +177,7 @@ class TeammateManager:
     def _teammate_loop(self, name: str, role: str, prompt: str):
         sys_prompt = (
             f"You are '{name}', role: {role}, at {WORKDIR}. "
+            # f"{SYSTEM_TEAM}."
             f"Submit plans via plan_approval before major work. "
             f"Respond to shutdown_request with shutdown_response."
         )
@@ -236,24 +238,11 @@ class TeammateManager:
         if tool_name == "shutdown_response":
             req_id = args["request_id"]
             approve = args["approve"]
-            with _tracker_lock:
-                if req_id in shutdown_requests:
-                    shutdown_requests[req_id]["status"] = "approved" if approve else "rejected"
-            BUS.send(
-                sender, "lead", args.get("reason", ""),
-                "shutdown_response", {"request_id": req_id, "approve": approve},
-            )
-            return f"Shutdown {'approved' if approve else 'rejected'}"
+            reason = args.get("reason", "")
+            return handle_shutdown_response(sender, req_id, approve, reason)
         if tool_name == "plan_approval":
             plan_text = args.get("plan", "")
-            req_id = str(uuid.uuid4())[:8]
-            with _tracker_lock:
-                plan_requests[req_id] = {"from": sender, "plan": plan_text, "status": "pending"}
-            BUS.send(
-                sender, "lead", plan_text, "plan_approval_response",
-                {"request_id": req_id, "plan": plan_text},
-            )
-            return f"Plan submitted (request_id={req_id}). Waiting for lead approval."
+            return handle_plan_request(sender, plan_text)
         return f"Unknown tool: {tool_name}"
 
     def _teammate_tools(self) -> list:
@@ -345,6 +334,28 @@ def _run_edit(path: str, old_text: str, new_text: str) -> str:
         return f"Edited {path}"
     except Exception as e:
         return f"Error: {e}"
+
+
+def handle_shutdown_response(sender: str, req_id: str, approve: bool, reason: str) -> str:
+    with _tracker_lock:
+        if req_id in shutdown_requests:
+            shutdown_requests[req_id]["status"] = "approved" if approve else "rejected"
+        BUS.send(
+            sender, "lead", reason,
+            "shutdown_response", {"request_id": req_id, "approve": approve},
+        )
+        return f"Shutdown {'approved' if approve else 'rejected'}"
+
+
+def handle_plan_request(sender: str, plan_text: str) -> str:
+    req_id = str(uuid.uuid4())[:8]
+    with _tracker_lock:
+        plan_requests[req_id] = {"from": sender, "plan": plan_text, "status": "pending"}
+    BUS.send(
+        sender, "lead", plan_text, "plan_approval_response",
+        {"request_id": req_id, "plan": plan_text},
+    )
+    return f"Plan submitted (request_id={req_id}). Waiting for lead approval."
 
 
 # -- Lead-specific protocol handlers --
@@ -449,7 +460,8 @@ def agent_loop(messages: list):
                     output = handler(**block.input) if handler else f"Unknown tool: {block.name}"
                 except Exception as e:
                     output = f"Error: {e}"
-                print(f"> {block.name}:")
+                input_obj = getattr(block, "input", "")
+                print(f"> {block.name}:{input_obj}")
                 print(str(output)[:200])
                 results.append({
                     "type": "tool_result",

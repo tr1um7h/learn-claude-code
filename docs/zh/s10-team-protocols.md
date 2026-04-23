@@ -106,3 +106,6 @@ python agents/s10_team_protocols.py
 3. `Spawn bob with a risky refactoring task. Review and reject his plan.`
 4. `Spawn charlie, have him submit a plan, then approve it.`
 5. 输入 `/team` 监控状态
+
+## 个人理解
+1. 即使系统提示词要求teammate不要退出，但最后也没有作用。还是会返回end_turn
