@@ -62,6 +62,8 @@ client = Anthropic(base_url=os.getenv("ANTHROPIC_BASE_URL"))
 MODEL = os.environ["MODEL_ID"]
 TEAM_DIR = WORKDIR / ".team"
 INBOX_DIR = TEAM_DIR / "inbox"
+TEAM_LIVE = 80
+DATA_LEN_MIN = 10
 
 SYSTEM = f"You are a team lead at {WORKDIR}. Spawn teammates and communicate via inboxes."
 
@@ -92,12 +94,14 @@ class MessageBus:
         }
         if extra:
             msg.update(extra)
+        # 写他们的信箱
         inbox_path = self.dir / f"{to}.jsonl"
         with open(inbox_path, "a") as f:
             f.write(json.dumps(msg) + "\n")
         return f"Sent {msg_type} to {to}"
 
     def read_inbox(self, name: str) -> list:
+        # 读自己的信箱
         inbox_path = self.dir / f"{name}.jsonl"
         if not inbox_path.exists():
             return []
@@ -131,11 +135,21 @@ class TeammateManager:
 
     def _load_config(self) -> dict:
         if self.config_path.exists():
-            return json.loads(self.config_path.read_text())
+            data = self.config_path.read_text()
+            if len(data) > DATA_LEN_MIN:
+                return json.loads(data)
         return {"team_name": "default", "members": []}
 
     def _save_config(self):
         self.config_path.write_text(json.dumps(self.config, indent=2))
+
+    def clean(self):
+        names = self.member_names()
+        for name in names:
+            inbox_path = self.dir / f"inbox/{name}.jsonl"
+            inbox_path.write_text("")
+        self.config_path.write_text("")
+
 
     def _find_member(self, name: str) -> dict:
         for m in self.config["members"]:
@@ -147,7 +161,7 @@ class TeammateManager:
         member = self._find_member(name)
         if member:
             if member["status"] not in ("idle", "shutdown"):
-                return f"Error: '{name}' is currently {member['status']}"
+                print(f"Error: '{name}' is currently {member['status']}")
             member["status"] = "working"
             member["role"] = role
         else:
@@ -170,7 +184,8 @@ class TeammateManager:
         )
         messages = [{"role": "user", "content": prompt}]
         tools = self._teammate_tools()
-        for _ in range(50):
+        for _ in range(TEAM_LIVE):
+        # while True:
             inbox = BUS.read_inbox(name)
             for msg in inbox:
                 messages.append({"role": "user", "content": json.dumps(msg)})
@@ -205,6 +220,7 @@ class TeammateManager:
 
     def _exec(self, sender: str, tool_name: str, args: dict) -> str:
         # these base tools are unchanged from s02
+        # python don't have switch syntax (3.10+ support `match`)
         if tool_name == "bash":
             return _run_bash(args["command"])
         if tool_name == "read_file":
@@ -314,9 +330,9 @@ TOOL_HANDLERS = {
     "edit_file":       lambda **kw: _run_edit(kw["path"], kw["old_text"], kw["new_text"]),
     "spawn_teammate":  lambda **kw: TEAM.spawn(kw["name"], kw["role"], kw["prompt"]),
     "list_teammates":  lambda **kw: TEAM.list_all(),
-    "send_message":    lambda **kw: BUS.send("lead", kw["to"], kw["content"], kw.get("msg_type", "message")),
-    "read_inbox":      lambda **kw: json.dumps(BUS.read_inbox("lead"), indent=2),
-    "broadcast":       lambda **kw: BUS.broadcast("lead", kw["content"], TEAM.member_names()),
+    "send_message":    lambda **kw: BUS.send(kw["from"], kw["to"], kw["content"], kw.get("msg_type", "message")),
+    "read_inbox":      lambda **kw: json.dumps(BUS.read_inbox(name="lead"), indent=2),
+    "broadcast":       lambda **kw: BUS.broadcast(kw["from"], kw["content"], TEAM.member_names()),
 }
 
 # these base tools are unchanged from s02
@@ -333,12 +349,12 @@ TOOLS = [
      "input_schema": {"type": "object", "properties": {"name": {"type": "string"}, "role": {"type": "string"}, "prompt": {"type": "string"}}, "required": ["name", "role", "prompt"]}},
     {"name": "list_teammates", "description": "List all teammates with name, role, status.",
      "input_schema": {"type": "object", "properties": {}}},
-    {"name": "send_message", "description": "Send a message to a teammate's inbox.",
-     "input_schema": {"type": "object", "properties": {"to": {"type": "string"}, "content": {"type": "string"}, "msg_type": {"type": "string", "enum": list(VALID_MSG_TYPES)}}, "required": ["to", "content"]}},
-    {"name": "read_inbox", "description": "Read and drain the lead's inbox.",
+    {"name": "send_message", "description": "Send a message from teammate or lead to a teammate's inbox.",
+     "input_schema": {"type": "object", "properties": {"from": {"type": "string"}, "to": {"type": "string"}, "content": {"type": "string"}, "msg_type": {"type": "string", "enum": list(VALID_MSG_TYPES)}}, "required": ["to", "content"]}},
+    {"name": "read_inbox", "description": "Read and drain the inbox (default is lead).",
      "input_schema": {"type": "object", "properties": {}}},
     {"name": "broadcast", "description": "Send a message to all teammates.",
-     "input_schema": {"type": "object", "properties": {"content": {"type": "string"}}, "required": ["content"]}},
+     "input_schema": {"type": "object", "properties": {"from": {"type": "string"}, "content": {"type": "string"}}, "required": ["content"]}},
 ]
 
 
@@ -357,7 +373,7 @@ def agent_loop(messages: list):
             tools=TOOLS,
             max_tokens=8000,
         )
-        messages.append({"role": "assistant", "content": response.content})
+        messages.append({"role": "assistant", "content": response.content, "stop_reason": response.stop_reason})
         if response.stop_reason != "tool_use":
             return
         results = []
@@ -368,7 +384,8 @@ def agent_loop(messages: list):
                     output = handler(**block.input) if handler else f"Unknown tool: {block.name}"
                 except Exception as e:
                     output = f"Error: {e}"
-                print(f"> {block.name}:")
+                input_obj = getattr(block, "input", "")
+                print(f"> {block.name}:{input_obj}")
                 print(str(output)[:200])
                 results.append({
                     "type": "tool_result",
@@ -390,8 +407,16 @@ if __name__ == "__main__":
         if query.strip() == "/team":
             print(TEAM.list_all())
             continue
+        if query.strip() == "/clean":
+            TEAM.clean()
+            break
         if query.strip() == "/inbox":
             print(json.dumps(BUS.read_inbox("lead"), indent=2))
+            continue
+        if query.strip().startswith("/inbox"):
+            sep = query.index("-")
+            name = query[sep+1:].strip()
+            print(json.dumps(BUS.read_inbox(name), indent=2))
             continue
         history.append({"role": "user", "content": query})
         agent_loop(history)
