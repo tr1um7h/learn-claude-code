@@ -61,6 +61,7 @@ class BackgroundManager:
             target=self._execute, args=(task_id, command), daemon=True
         )
         thread.start()
+        # 当前进程继续执行
         return f"Background task {task_id} started: {command[:80]}"
 
     def _execute(self, task_id: str, command: str):
@@ -70,6 +71,7 @@ class BackgroundManager:
                 command, shell=True, cwd=WORKDIR,
                 capture_output=True, text=True, timeout=300
             )
+            # 子任务阻塞在这里，完成后走到最后放入queue里
             output = (r.stdout + r.stderr).strip()[:50000]
             status = "completed"
         except subprocess.TimeoutExpired:
@@ -187,8 +189,10 @@ TOOLS = [
 
 def agent_loop(messages: list):
     while True:
+        print("bg_queue tasks> {}", len(BG._notification_queue))
         # Drain background notifications and inject as system message before LLM call
         notifs = BG.drain_notifications()
+        # 上一次查询任务的结果，和当前任务最新结果，可能有偏差，但这里汇总后一起上报给大模型
         if notifs and messages:
             notif_text = "\n".join(
                 f"[bg:{n['task_id']}] {n['status']}: {n['result']}" for n in notifs
@@ -198,7 +202,8 @@ def agent_loop(messages: list):
             model=MODEL, system=SYSTEM, messages=messages,
             tools=TOOLS, max_tokens=8000,
         )
-        messages.append({"role": "assistant", "content": response.content})
+        # 将大模型回复添加到聊天记录中
+        messages.append({"role": "assistant", "content": response.content, "stop_reason": response.stop_reason})
         if response.stop_reason != "tool_use":
             return
         results = []
@@ -209,7 +214,8 @@ def agent_loop(messages: list):
                     output = handler(**block.input) if handler else f"Unknown tool: {block.name}"
                 except Exception as e:
                     output = f"Error: {e}"
-                print(f"> {block.name}:")
+                input_obj = getattr(block, "input", "")
+                print(f"> {block.name}:{input_obj}")
                 print(str(output)[:200])
                 results.append({"type": "tool_result", "tool_use_id": block.id, "content": str(output)})
         messages.append({"role": "user", "content": results})
@@ -232,3 +238,6 @@ if __name__ == "__main__":
                 if hasattr(block, "text"):
                     print(block.text)
         print()
+        # 每轮agent_loop后，清空历史和状态
+        history = []
+        BG.__init__()

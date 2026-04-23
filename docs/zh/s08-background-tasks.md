@@ -107,3 +107,8 @@ python agents/s08_background_tasks.py
 1. `Run "sleep 5 && echo done" in the background, then create a file while it runs`
 2. `Start 3 background tasks: "sleep 2", "sleep 4", "sleep 6". Check their status.`
 3. `Run pytest in the background and keep working on other things`
+4. `Start 3 background tasks: "sleep 2", "sleep 4", "sleep 6". Check their status until them done.`
+
+## 个人理解
+1. 不同大模型的思维能力和行为是不一样的，需要给明确的约束，而不是隐式或者“预计”。
+   比如执行任务2，有的大模型会持续检查直到所有任务都完成，有的大模型只是立即检查并退出，有的思考着要检查但实际却退出了。
