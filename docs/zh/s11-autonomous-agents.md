@@ -137,8 +137,14 @@ python agents/s11_autonomous_agents.py
 
 试试这些 prompt (英文 prompt 对 LLM 效果更好, 也可以用中文):
 
-1. `Create 3 tasks on the board, then spawn alice and bob. Watch them auto-claim.`
+1. `Create 3 dummy tasks on the board, then spawn alice and bob. Watch them auto-claim.`
 2. `Spawn a coder teammate and let it find work from the task board itself`
 3. `Create tasks with dependencies. Watch teammates respect the blocked order.`
 4. 输入 `/tasks` 查看带 owner 的任务看板
 5. 输入 `/team` 监控谁在工作、谁在空闲
+
+## 个人感受
+1. 在添加了 while True 之后，teammate 能更好地处理 退出，而不是大模型说退出会话就退出会话。非常简单有效！
+2. idle / claim_task 可以让 teammate 自己处理状态切换
+3. 如果 compact, 则重新插入身份提示. agents/s11_autonomous_agents.py:292 学习这段代码
+4. teammate 不需要实现 restart, 直接重新 respawn 一个新的？
