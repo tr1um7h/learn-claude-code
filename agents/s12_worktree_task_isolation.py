@@ -29,6 +29,7 @@ Tasks are the control plane and worktrees are the execution plane.
 
 Key insight: "Isolate by directory, coordinate by task ID."
 """
+from __future__ import annotations
 
 import json
 import os
@@ -120,6 +121,7 @@ class EventBus:
 
 # -- TaskManager: persistent task board with optional worktree binding --
 class TaskManager:
+    # status: "pending", "in_progress", "completed"
     def __init__(self, tasks_dir: Path):
         self.dir = tasks_dir
         self.dir.mkdir(parents=True, exist_ok=True)
@@ -223,6 +225,7 @@ EVENTS = EventBus(REPO_ROOT / ".worktrees" / "events.jsonl")
 
 # -- WorktreeManager: create/list/run/remove git worktrees + lifecycle index --
 class WorktreeManager:
+    # status: "active", "failed", "kept", "unknown"
     def __init__(self, repo_root: Path, tasks: TaskManager, events: EventBus):
         self.repo_root = repo_root
         self.tasks = tasks
@@ -290,6 +293,8 @@ class WorktreeManager:
 
         path = self.dir / name
         branch = f"wt/{name}"
+
+        # wt event 1
         self.events.emit(
             "worktree.create.before",
             task={"id": task_id} if task_id is not None else {},
@@ -306,7 +311,7 @@ class WorktreeManager:
                 "status": "active",
                 "created_at": time.time(),
             }
-
+            # add new worktree index entry
             idx = self._load_index()
             idx["worktrees"].append(entry)
             self._save_index(idx)
@@ -314,6 +319,7 @@ class WorktreeManager:
             if task_id is not None:
                 self.tasks.bind_worktree(task_id, name)
 
+            # wt event 2
             self.events.emit(
                 "worktree.create.after",
                 task={"id": task_id} if task_id is not None else {},
@@ -326,6 +332,7 @@ class WorktreeManager:
             )
             return json.dumps(entry, indent=2)
         except Exception as e:
+            # wt event 3
             self.events.emit(
                 "worktree.create.failed",
                 task={"id": task_id} if task_id is not None else {},
@@ -396,6 +403,7 @@ class WorktreeManager:
         if not wt:
             return f"Error: Unknown worktree '{name}'"
 
+        # wt event 4
         self.events.emit(
             "worktree.remove.before",
             task={"id": wt.get("task_id")} if wt.get("task_id") is not None else {},
@@ -413,6 +421,7 @@ class WorktreeManager:
                 before = json.loads(self.tasks.get(task_id))
                 self.tasks.update(task_id, status="completed")
                 self.tasks.unbind_worktree(task_id)
+                # wt event 5
                 self.events.emit(
                     "task.completed",
                     task={
@@ -423,6 +432,7 @@ class WorktreeManager:
                     worktree={"name": name},
                 )
 
+            # update index
             idx = self._load_index()
             for item in idx.get("worktrees", []):
                 if item.get("name") == name:
@@ -430,6 +440,7 @@ class WorktreeManager:
                     item["removed_at"] = time.time()
             self._save_index(idx)
 
+            # wt event 6
             self.events.emit(
                 "worktree.remove.after",
                 task={"id": wt.get("task_id")} if wt.get("task_id") is not None else {},
@@ -437,6 +448,7 @@ class WorktreeManager:
             )
             return f"Removed worktree '{name}'"
         except Exception as e:
+            # wt event 7
             self.events.emit(
                 "worktree.remove.failed",
                 task={"id": wt.get("task_id")} if wt.get("task_id") is not None else {},
@@ -450,6 +462,7 @@ class WorktreeManager:
         if not wt:
             return f"Error: Unknown worktree '{name}'"
 
+        # update index
         idx = self._load_index()
         kept = None
         for item in idx.get("worktrees", []):
@@ -459,6 +472,7 @@ class WorktreeManager:
                 kept = item
         self._save_index(idx)
 
+        # wt event 8
         self.events.emit(
             "worktree.keep",
             task={"id": wt.get("task_id")} if wt.get("task_id") is not None else {},

@@ -121,3 +121,9 @@ python agents/s12_worktree_task_isolation.py
 3. `Run "git status --short" in worktree "auth-refactor".`
 4. `Keep worktree "ui-login", then list worktrees and inspect events.`
 5. `Remove worktree "auth-refactor" with complete_task=true, then list tasks/worktrees/events.`
+
+1. `Create tasks for count 1-100 and count aaa-zzz, then list tasks.`
+2. `Create worktree "count-100" for task 1, then bind task 2 to a new worktree "count-aaa".`
+3. `Run "git status --short" in worktree "count-aaa".`
+4. `Keep worktree "count-100", then list worktrees and inspect events.`
+5. `Remove worktree "count-aaa" with complete_task=true, then list tasks/worktrees/events.`
